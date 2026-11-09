@@ -16,9 +16,12 @@ if str(ROOT) not in sys.path:
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    # 本地默认只监听回环地址；Docker / 云主机部署时设 HOST=0.0.0.0
-    host = os.environ.get("HOST", "127.0.0.1")
-    url = f"http://127.0.0.1:{port}"
+    # 平台（Docker / PaaS / 部署沙箱）会注入 PORT，此时必须对外绑定 0.0.0.0；
+    # 本机直接运行时默认只监听回环地址，更安全。也可用 HOST 显式覆盖。
+    host = os.environ.get("HOST") or (
+        "0.0.0.0" if "PORT" in os.environ else "127.0.0.1")
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{display_host}:{port}"
     print("=" * 62)
     print("  Backprop Lab · 神经网络训练显微镜")
     print(f"  页面     {url}")

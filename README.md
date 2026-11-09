@@ -4,7 +4,7 @@
 
 **把一次 BP 训练的「内部状态」变成可拖动、可回放、可对比的时间轴**
 
-[English](./README.en.md) · [在线预览说明](#部署) · [API 文档](#api)
+[English](./README.en.md) · [在线 Demo](https://bp-training-microscope.app.workbuddy.host/?sharecode=QQUVVFCKMQ) · [API 文档](#api) · [部署说明](#部署)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white)
@@ -121,6 +121,7 @@ flowchart LR
 
 | 方法     | 路径                                             | 说明                            |
 | ------ | ---------------------------------------------- | ----------------------------- |
+| `GET`  | `/api/health`                                  | 健康检查探针（部署平台用）                  |
 | `GET`  | `/api/networks`                                | A–F 号网络目录（结构 / 激活 / 参数量 / 说明） |
 | `GET`  | `/api/datasets/{kind}?n_samples=200&noise=0.1` | 数据集预览点与网格元信息                  |
 | `POST` | `/api/experiments`                             | 创建实验并启动后台训练，返回 `id`           |
@@ -169,13 +170,17 @@ python -m unittest discover -s tests -v
 
 8 个单元测试覆盖：内置数据集形状、自定义数据必须含两类、网格坐标方向、前向传播形状、初始化可复现、参数量、短训练流水线的事件与持久化、线性模型边界保持直线。
 
-CI 配置在 `docs/ci.yml.example`：在 GitHub 网页新建 `.github/workflows/ci.yml` 并把内容粘贴进去，即可启用 push / PR 自动测试（CI 先装 CPU 版 torch，避免拉取数 GB 的 CUDA 依赖）。
+[👉 点这里一键启用 CI](https://github.com/anshu-lgtm/backprop-lab/new/main?filename=.github/workflows/ci.yml&value=name%3A%20CI%0A%0Aon%3A%0A%20%20push%3A%0A%20%20%20%20branches%3A%20%5Bmain%2C%20master%5D%0A%20%20pull_request%3A%0A%20%20workflow_dispatch%3A%0A%0Ajobs%3A%0A%20%20test%3A%0A%20%20%20%20runs-on%3A%20ubuntu-latest%0A%20%20%20%20timeout-minutes%3A%2020%0A%20%20%20%20env%3A%0A%20%20%20%20%20%20PYTHONPATH%3A%20.%0A%20%20%20%20%20%20MPLBACKEND%3A%20Agg%0A%20%20%20%20steps%3A%0A%20%20%20%20%20%20-%20uses%3A%20actions%2Fcheckout%40v4%0A%0A%20%20%20%20%20%20-%20uses%3A%20actions%2Fsetup-python%40v5%0A%20%20%20%20%20%20%20%20with%3A%0A%20%20%20%20%20%20%20%20%20%20python-version%3A%20%223.11%22%0A%20%20%20%20%20%20%20%20%20%20cache%3A%20pip%0A%0A%20%20%20%20%20%20%23%20CPU-only%20wheel%3A%20the%20default%20PyPI%20torch%20wheel%20pulls%20in%20several%20GB%20of%20CUDA%20deps.%0A%20%20%20%20%20%20-%20name%3A%20Install%20CPU-only%20PyTorch%0A%20%20%20%20%20%20%20%20run%3A%20pip%20install%20torch%20--index-url%20https%3A%2F%2Fdownload.pytorch.org%2Fwhl%2Fcpu%0A%0A%20%20%20%20%20%20-%20name%3A%20Install%20dependencies%0A%20%20%20%20%20%20%20%20run%3A%20pip%20install%20-r%20requirements.txt%0A%0A%20%20%20%20%20%20-%20name%3A%20Run%20unit%20tests%0A%20%20%20%20%20%20%20%20run%3A%20python%20-m%20unittest%20discover%20-s%20tests%20-v%0A%0A%20%20%20%20%20%20-%20name%3A%20Verify%20application%20imports%20and%20routes%0A%20%20%20%20%20%20%20%20run%3A%20python%20-c%20%22from%20backend.app%20import%20app%3B%20print%28%27routes%3A%27%2C%20len%28app.routes%29%29%22%0A%0A%20%20%20%20%20%20-%20name%3A%20Compile%20all%20sources%0A%20%20%20%20%20%20%20%20run%3A%20python%20-m%20compileall%20-q%20backend%20run.py%0A)（会在 GitHub 网页打开「新建文件」页，路径 `.github/workflows/ci.yml` 与文件内容已自动填好，滚到底点 Commit 即可）。CI 在 push / PR 时自动跑 8 个测试，先装 CPU 版 torch 以避开数 GB 的 CUDA 依赖；配置同时保留在 `docs/ci.yml.example`。
 
-> 说明：GitHub 要求用于创建 / 修改 `.github/workflows/` 下文件的 Personal Access Token 具备 `workflow` scope，当前 token 只有 `repo` scope，因此配置以示例文件形式随仓库提供。网页里新建一次文件即可启用，无需重新生成 token；之后若换用带 `workflow` scope 的 token，也可在本地 `cp docs/ci.yml.example .github/workflows/ci.yml` 后正常提交。
+> 说明：GitHub 要求创建 / 修改 `.github/workflows/` 下文件的 Personal Access Token 具备 `workflow` scope，首次发布的 token 只有 `repo` scope，因此配置以示例文件随仓库提供。用上面的网页链接启用一次即可，不必重新生成 token；之后若换用带 `workflow` scope 的 token，也可在本地 `cp docs/ci.yml.example .github/workflows/ci.yml` 后正常提交。
 
 ## 部署
 
-> **注意**：这是 FastAPI 动态应用，不是静态页面，GitHub Pages 无法托管。要给别人在线访问，需要一台能跑 Python 的主机。
+**在线 Demo（无需本地安装，直接打开）**：https://bp-training-microscope.app.workbuddy.host/?sharecode=QQUVVFCKMQ
+
+打开后选网络点「开始训练」即可看逐轮直播；链接后加 `&auto=1&net=C` 会自动演示，加 `&exp=<id>` 可回放已保存的实验快照，云端已预置 A–F 号实验。
+
+> **注意**：这是 FastAPI 动态应用，不是静态页面，GitHub Pages 无法托管。要长期自建在线服务，需要一台能跑 Python 的主机。
 
 Docker：
 
@@ -184,7 +189,7 @@ docker build -t backprop-lab .
 docker run -p 8000:8000 backprop-lab
 ```
 
-`run.py` 默认绑定 `127.0.0.1`（本机使用更安全）；容器内设 `HOST=0.0.0.0` 即可对外，Dockerfile 已预置该变量。
+`run.py` 本机默认绑定 `127.0.0.1`；平台注入 `PORT` 时（Docker / PaaS / 部署沙箱）自动绑定 `0.0.0.0`，也可用 `HOST` 显式覆盖。Dockerfile 已预置 `HOST=0.0.0.0`，并新增 `/api/health` 供部署平台做健康检查。
 
 云主机 / PaaS（Render、Railway、Fly.io 等）注意事项：
 

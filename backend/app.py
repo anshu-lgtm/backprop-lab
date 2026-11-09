@@ -33,6 +33,12 @@ hub = Hub()
 store = Store()
 
 
+@app.get("/api/health")
+def health():
+    """部署平台健康检查探针：不查库、不触发训练，秒级返回。"""
+    return {"status": "ok", "version": app.version}
+
+
 @app.get("/api/networks")
 def get_networks():
     """网络目录：结构、参数量、激活函数、预期结论。"""
