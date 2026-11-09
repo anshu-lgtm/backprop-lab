@@ -1,0 +1,6 @@
+# Keep LF everywhere so Docker builds and Linux CI behave identically.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.sqlite3 binary
