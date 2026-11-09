@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backprop Lab · 神经网络训练显微镜</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo"></span>
+    <div>
+      <h1>Backprop Lab</h1>
+      <p>神经网络训练显微镜 · 把一次 BP 训练变成可回放的时间轴</p>
+    </div>
+  </div>
+  <div class="topright">
+    <span class="badge" id="statusBadge">就绪</span>
+    <a href="/docs" target="_blank" class="doclink">API 文档 ↗</a>
+  </div>
+</header>
+
+<main class="layout">
+
+  <aside class="panel">
+    <section class="block">
+      <h2>1 · 数据集</h2>
+      <label class="field">
+        <span>分布</span>
+        <select id="dataset">
+          <option value="moons">月亮 make_moons</option>
+          <option value="circles">同心圆 make_circles</option>
+          <option value="xor">异或 XOR</option>
+          <option value="custom">自己画点</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>样本数 <b id="nSamplesVal">200</b></span>
+        <input type="range" id="nSamples" min="40" max="600" step="20" value="200">
+      </label>
+      <label class="field">
+        <span>噪声 <b id="noiseVal">0.10</b></span>
+        <input type="range" id="noise" min="0" max="0.4" step="0.01" value="0.1">
+      </label>
+      <div id="drawWrap" class="hidden">
+        <div class="hint">左键点红类 · 右键点蓝类（至少 4 个点，两类都要有）</div>
+        <canvas id="drawCanvas" width="268" height="190"></canvas>
+        <button id="clearDraw" class="ghost small">清空画点</button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>2 · 网络结构</h2>
+      <div id="networkList" class="netlist"></div>
+    </section>
+
+    <section class="block">
+      <h2>3 · 训练超参</h2>
+      <label class="field">
+        <span>epochs <b id="epochsVal">1000</b></span>
+        <input type="range" id="epochs" min="100" max="3000" step="100" value="1000">
+      </label>
+      <label class="field">
+        <span>学习率 <b id="lrVal">0.100</b></span>
+        <input type="range" id="lr" min="0.001" max="0.3" step="0.001" value="0.1">
+      </label>
+      <label class="field">
+        <span>关键帧间隔 <b id="frameEveryVal">20</b> 轮</span>
+        <input type="range" id="frameEvery" min="5" max="100" step="5" value="20">
+      </label>
+      <label class="field">
+        <span>初始化种子 <b>13</b>（与课件一致）</span>
+        <input type="hidden" id="seed" value="13">
+      </label>
+      <button id="startBtn" class="primary">开始训练</button>
+      <div class="hint">固定 CrossEntropyLoss + Adam；种子 13 按 A→F 顺序创建，避免 D 号「死 ReLU」。</div>
+    </section>
+
+    <section class="block">
+      <h2>4 · 实验历史</h2>
+      <div id="historyList" class="history"></div>
+      <div class="hint">点击某条可把它的 loss 曲线叠加到下方对比图。</div>
+    </section>
+  </aside>
+
+  <section class="stage">
+
+    <div class="metrics">
+      <div class="metric"><span>当前轮次</span><b id="mEpoch">—</b></div>
+      <div class="metric"><span>Loss</span><b id="mLoss">—</b></div>
+      <div class="metric"><span>准确率</span><b id="mAcc">—</b></div>
+      <div class="metric"><span>ReLU 零激活率</span><b id="mDead">—</b></div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">
+        <h2>决策边界演化</h2>
+        <span id="boundaryNote" class="note">选择网络后开始训练</span>
+      </div>
+      <div class="boundarybody">
+        <canvas id="boundary" width="480" height="480"></canvas>
+        <div class="legend">
+          <span><i class="dot red"></i>类别 0</span>
+          <span><i class="dot blue"></i>类别 1</span>
+          <span><i class="swatch"></i>底色深浅 = 预测概率置信度</span>
+        </div>
+      </div>
+      <div class="timeline">
+        <button id="playBtn" class="ghost" title="播放 / 暂停">▶</button>
+        <input type="range" id="timeline" min="0" max="0" value="0" step="1">
+        <span id="epochLabel" class="mono">0 / 0</span>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="cardhead"><h2>Loss 曲线对比</h2><span id="lossNote" class="note">—</span></div>
+        <canvas id="lossChart" width="460" height="230"></canvas>
+        <div id="curveLegend" class="curvelegend"></div>
+      </div>
+      <div class="card">
+        <div class="cardhead"><h2>隐藏层激活热力图</h2><span class="note">当前轮次</span></div>
+        <canvas id="activation" width="460" height="230"></canvas>
+        <div id="insight" class="insight">等待训练数据…</div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+torch>=2.0
+numpy>=1.24
+scikit-learn>=1.3
