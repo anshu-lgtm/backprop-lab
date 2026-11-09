@@ -7,13 +7,9 @@
 [English](./README.en.md) · [在线预览说明](#部署) · [API 文档](#api)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white)
-
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)
-
 ![Frontend](https://img.shields.io/badge/Frontend-Zero%20Build-4FC08D?logo=javascript&logoColor=white)
-
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 </div>
