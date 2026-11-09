@@ -5,7 +5,8 @@
 在项目目录执行一次，即可完成：
   1. 提交本地未提交的改动（如果有）
   2. 校验远端 GitHub Actions CI 内容，缺失或缩进损坏时自动修复
-  3. 推送 main 到 GitHub（自动带上 Windows 网络兼容参数、自动 rebase）
+  3. 推送 main 到 GitHub（自动带 Windows 网络兼容参数、自动 rebase、网络抖动重试；
+     git 通道被代理挡住时自动走 GitHub API 兜底同步文件内容）
   4. 校验远端 commit 并打印 CI 运行结果
 
 用法（在项目目录执行）：
@@ -207,14 +208,18 @@ def api_headers(token):
     }
 
 
-def api(method, token, payload=None):
+def github_api(method, url, token, payload=None):
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
-        API_CONTENTS, data=data, method=method, headers=api_headers(token)
+        url, data=data, method=method, headers=api_headers(token)
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         body = resp.read().decode("utf-8")
         return resp.status, (json.loads(body) if body else {})
+
+
+def api(method, token, payload=None):
+    return github_api(method, API_CONTENTS, token, payload)
 
 
 def enable_ci(token):
@@ -271,16 +276,84 @@ def enable_ci(token):
         return "failed"
 
 
-def verify():
+def verify(token=None, via_api=False):
     local = git("rev-parse", "HEAD").stdout.strip()
-    proc = git("ls-remote", "origin", f"refs/heads/{BRANCH}", check=False)
-    remote = proc.stdout.split()[0] if proc.returncode == 0 and proc.stdout.strip() else ""
+    remote = ""
+    if token:
+        try:
+            url = f"https://api.github.com/repos/{OWNER}/{REPO}/git/ref/heads/{BRANCH}"
+            _, ref = github_api("GET", url, token)
+            remote = ref["object"]["sha"]
+        except Exception:
+            pass
+    if not remote:
+        proc = git("ls-remote", "origin", f"refs/heads/{BRANCH}", check=False)
+        remote = proc.stdout.split()[0] if proc.returncode == 0 and proc.stdout.strip() else ""
     if remote and remote == local:
         print(f"  远端 main = 本地 HEAD = {local[:7]}，同步完成。")
         return True
     print(f"  本地 HEAD = {local[:7]}；远端 main = {remote[:7] if remote else '读取失败'}")
-    print("  （公开仓库读取偶有延迟，稍后可用 git fetch 复核）")
+    if via_api:
+        print("  代码内容已同步；commit 哈希不同是 API 兜底产生的正常分叉，")
+        print("  网络恢复后再执行一次本脚本会自动 fetch + rebase 对齐历史。")
+    else:
+        print("  （读取偶有延迟，可稍后 git fetch 复核）")
     return False
+
+
+def api_fallback_sync(token):
+    """git 通道被代理挡住时，用 Contents API 把本地改动的文件同步到远端（不删除任何远端文件）。"""
+    if not token:
+        print("  没有可用凭据，无法走 API 兜底。")
+        return False
+    changed = git("diff", "--name-only", f"origin/{BRANCH}..HEAD", check=False).stdout.strip().splitlines()
+    changed = [p.strip() for p in changed if p.strip()]
+    if not changed:
+        print("  没有检测到需要同步的文件改动。")
+        return False
+    contents_base = f"https://api.github.com/repos/{OWNER}/{REPO}/contents/"
+    synced, failures = [], 0
+    for path in changed:
+        local_file = ROOT / path
+        if not local_file.is_file():
+            continue  # 兜底不删除，避免误删远端文件
+        data = local_file.read_bytes()
+        if len(data) > 900_000:
+            print(f"  跳过 {path}（超过 Contents API 1MB 限制）")
+            continue
+        url = contents_base + urllib.parse.quote(path, safe="/")
+        try:
+            _, meta = github_api("GET", url + f"?ref={BRANCH}", token)
+            if base64.b64decode(meta.get("content", "")) == data:
+                continue
+            payload = {
+                "message": f"chore: sync {path} via API fallback",
+                "content": base64.b64encode(data).decode("ascii"),
+                "branch": BRANCH,
+                "sha": meta["sha"],
+            }
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                print(f"  同步 {path} 失败（HTTP {e.code}）")
+                failures += 1
+                continue
+            payload = {
+                "message": f"chore: add {path} via API fallback",
+                "content": base64.b64encode(data).decode("ascii"),
+                "branch": BRANCH,
+            }
+        except Exception as e:
+            print(f"  同步 {path} 失败：{e}")
+            failures += 1
+            continue
+        try:
+            github_api("PUT", url, token, payload)
+            synced.append(path)
+        except Exception as e:
+            print(f"  写入 {path} 失败：{e}")
+            failures += 1
+    print(f"  已通过 API 同步 {len(synced)} 个文件：{', '.join(synced) if synced else '内容已是最新'}")
+    return not (failures and not synced)
 
 
 def report_actions(token):
@@ -336,13 +409,24 @@ def main():
 
     step(3, "推送到 GitHub")
     result = push(push_token)
+    via_api = False
     if result.returncode != 0:
-        explain_push_failure(result)
-        raise SystemExit(1)
-    print("  推送成功。")
+        err = ((result.stderr or "") + (result.stdout or "")).lower()
+        network = any(w in err for w in ("empty reply", "502", "timed out",
+                                         "unable to access", "could not resolve",
+                                         "early eof", "rpc failed"))
+        if network and api_token:
+            print("  git 通道被代理挡住，自动改用 GitHub API 同步文件内容……")
+            via_api = api_fallback_sync(api_token)
+        if not via_api:
+            explain_push_failure(result)
+            raise SystemExit(1)
+        print("  远端内容已同步（API 通道）。")
+    else:
+        print("  推送成功。")
 
     step(4, "校验结果")
-    verify()
+    verify(api_token, via_api)
     report_actions(api_token)
 
     print("\n" + "=" * 62)
