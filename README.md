@@ -172,7 +172,22 @@ python -m unittest discover -s tests -v
 
 [👉 点这里一键启用 CI](https://github.com/anshu-lgtm/backprop-lab/new/main?filename=.github/workflows/ci.yml&value=name%3A%20CI%0A%0Aon%3A%0A%20%20push%3A%0A%20%20%20%20branches%3A%20%5Bmain%2C%20master%5D%0A%20%20pull_request%3A%0A%20%20workflow_dispatch%3A%0A%0Ajobs%3A%0A%20%20test%3A%0A%20%20%20%20runs-on%3A%20ubuntu-latest%0A%20%20%20%20timeout-minutes%3A%2020%0A%20%20%20%20env%3A%0A%20%20%20%20%20%20PYTHONPATH%3A%20.%0A%20%20%20%20%20%20MPLBACKEND%3A%20Agg%0A%20%20%20%20steps%3A%0A%20%20%20%20%20%20-%20uses%3A%20actions%2Fcheckout%40v4%0A%0A%20%20%20%20%20%20-%20uses%3A%20actions%2Fsetup-python%40v5%0A%20%20%20%20%20%20%20%20with%3A%0A%20%20%20%20%20%20%20%20%20%20python-version%3A%20%223.11%22%0A%20%20%20%20%20%20%20%20%20%20cache%3A%20pip%0A%0A%20%20%20%20%20%20%23%20CPU-only%20wheel%3A%20the%20default%20PyPI%20torch%20wheel%20pulls%20in%20several%20GB%20of%20CUDA%20deps.%0A%20%20%20%20%20%20-%20name%3A%20Install%20CPU-only%20PyTorch%0A%20%20%20%20%20%20%20%20run%3A%20pip%20install%20torch%20--index-url%20https%3A%2F%2Fdownload.pytorch.org%2Fwhl%2Fcpu%0A%0A%20%20%20%20%20%20-%20name%3A%20Install%20dependencies%0A%20%20%20%20%20%20%20%20run%3A%20pip%20install%20-r%20requirements.txt%0A%0A%20%20%20%20%20%20-%20name%3A%20Run%20unit%20tests%0A%20%20%20%20%20%20%20%20run%3A%20python%20-m%20unittest%20discover%20-s%20tests%20-v%0A%0A%20%20%20%20%20%20-%20name%3A%20Verify%20application%20imports%20and%20routes%0A%20%20%20%20%20%20%20%20run%3A%20python%20-c%20%22from%20backend.app%20import%20app%3B%20print%28%27routes%3A%27%2C%20len%28app.routes%29%29%22%0A%0A%20%20%20%20%20%20-%20name%3A%20Compile%20all%20sources%0A%20%20%20%20%20%20%20%20run%3A%20python%20-m%20compileall%20-q%20backend%20run.py%0A)（会在 GitHub 网页打开「新建文件」页，路径 `.github/workflows/ci.yml` 与文件内容已自动填好，滚到底点 Commit 即可）。CI 在 push / PR 时自动跑 8 个测试，先装 CPU 版 torch 以避开数 GB 的 CUDA 依赖；配置同时保留在 `docs/ci.yml.example`。
 
-> 说明：GitHub 要求创建 / 修改 `.github/workflows/` 下文件的 Personal Access Token 具备 `workflow` scope，首次发布的 token 只有 `repo` scope，因此配置以示例文件随仓库提供。用上面的网页链接启用一次即可，不必重新生成 token；之后若换用带 `workflow` scope 的 token，也可在本地 `cp docs/ci.yml.example .github/workflows/ci.yml` 后正常提交。
+> CI 已启用（`.github/workflows/ci.yml`），push / PR 会自动跑 8 个测试；`python publish.py` 每次发布都会校验远端配置，网页粘贴导致的缩进损坏会被自动修正。上面的网页链接保留为手动重建的备用方式。
+
+## 一键发布（改完代码只需执行一次）
+
+在项目根目录执行：
+
+```bash
+python publish.py
+```
+
+Windows 下也可以直接双击 `publish.bat`。脚本一次完成：提交本地改动 → 校验 / 修复远端 CI → 推送 main（自动 rebase、网络抖动重试，git 通道被代理挡住时自动走 GitHub API 兜底）→ 校验远端 commit 并报告 CI 运行结果。凭据自动复用本机 GitHub 登录态，无需每次输入 token；需要显式指定时：
+
+```bash
+set GITHUB_TOKEN=ghp_xxx && python publish.py
+python publish.py --check          # 只看状态，不做任何写入
+```
 
 ## 部署
 
@@ -210,6 +225,8 @@ docker run -p 8000:8000 backprop-lab
 ```
 backprop-lab/
 ├── run.py                     一键启动
+├── publish.py                 一键发布（提交 + CI 校验 + 推送 + 验证）
+├── publish.bat                Windows 双击入口
 ├── requirements.txt
 ├── Dockerfile
 ├── backend/
