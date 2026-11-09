@@ -4,9 +4,9 @@
 
 在项目目录执行一次，即可完成：
   1. 提交本地未提交的改动（如果有）
-  2. 推送 main 到 GitHub（自动带上 Windows 网络兼容参数）
-  3. 用 PAT 在远端启用 GitHub Actions CI（PAT 需要 workflow 权限）
-  4. 校验远端 commit 并打印结果
+  2. 校验远端 GitHub Actions CI 内容，缺失或缩进损坏时自动修复
+  3. 推送 main 到 GitHub（自动带上 Windows 网络兼容参数、自动 rebase）
+  4. 校验远端 commit 并打印 CI 运行结果
 
 用法（在项目目录执行）：
   python publish.py                          # 自动复用本机 GitHub 登录态，代码 + CI 一次完成
@@ -24,6 +24,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -138,6 +139,23 @@ def push(token):
         clear_stale_credentials()
         print("  用新的浏览器登录重试一次……")
         return git(*cmd, check=False)
+
+    # 代理常见的 502 / 空响应：自动重试，避免还要手动再执行一次
+    network_words = ("empty reply", "502", "timed out", "unable to access",
+                     "could not resolve", "early eof", "rpc failed")
+    if any(w in err for w in network_words):
+        last = first
+        for attempt in (1, 2):
+            print(f"  网络波动，自动重试 {attempt}/2 ……")
+            time.sleep(2)
+            last = git(*cmd, check=False)
+            if last.returncode == 0:
+                return last
+            new_err = ((last.stderr or "") + (last.stdout or "")).lower()
+            if "fetch first" in new_err or "rejected" in new_err:
+                print("  远端在此期间产生了新提交，重跑脚本即可自动 rebase 后推送。")
+                return last
+        return last
     return first
 
 
@@ -201,44 +219,55 @@ def api(method, token, payload=None):
 
 def enable_ci(token):
     if not token:
-        print("  未提供 PAT：跳过 CI 自动启用。")
-        print("  补一个 token 重跑本脚本即可自动补齐，或用 README 中的一键 CI 链接。")
+        print("  未提供 GitHub 凭据：跳过 CI 检查。")
+        print("  登录 GitHub（或提供 PAT）后重跑本脚本即可自动补齐。")
         return "skipped"
+    if not CI_TEMPLATE.exists():
+        print(f"  缺少模板 {CI_TEMPLATE}，跳过。")
+        return "failed"
+
+    template = CI_TEMPLATE.read_bytes()
+    sha = None
     try:
-        status, _ = api("GET", token)
+        status, meta = api("GET", token)
         if status == 200:
-            print("  远端已存在 ci.yml，无需重复创建。")
-            return "exists"
+            sha = meta.get("sha")
+            remote = base64.b64decode(meta.get("content", ""))
+            if remote == template:
+                print("  远端 ci.yml 与模板一致，无需改动。")
+                return "exists"
+            print("  远端 ci.yml 内容与模板不一致（网页粘贴常丢缩进），自动修正。")
     except urllib.error.HTTPError as e:
         if e.code != 404:
             print(f"  查询 CI 文件失败（HTTP {e.code}）。")
             if e.code in (401, 403):
-                print("  PAT 无效或缺少权限，请用勾选 repo + workflow 的新 PAT。")
+                print("  凭据无效或缺少权限，请用勾选 repo + workflow 的新 PAT。")
             return "failed"
+        print("  远端尚无 ci.yml，将自动创建。")
     except Exception as e:
         print(f"  无法访问 GitHub API：{e}")
         return "failed"
 
-    if not CI_TEMPLATE.exists():
-        print(f"  缺少模板 {CI_TEMPLATE}，跳过。")
-        return "failed"
-    content = base64.b64encode(CI_TEMPLATE.read_bytes()).decode("ascii")
+    payload = {
+        "message": ("ci: fix workflow file from canonical template" if sha
+                    else "ci: enable GitHub Actions test workflow"),
+        "content": base64.b64encode(template).decode("ascii"),
+        "branch": BRANCH,
+    }
+    if sha:
+        payload["sha"] = sha
     try:
-        api("PUT", token, {
-            "message": "ci: enable GitHub Actions test workflow",
-            "content": content,
-            "branch": BRANCH,
-        })
-        print("  已创建 .github/workflows/ci.yml，CI 会在本次推送后自动运行。")
-        return "created"
+        api("PUT", token, payload)
+        print("  已写入正确的 ci.yml，本次提交会触发新的 CI 运行。")
+        return "fixed" if sha else "created"
     except urllib.error.HTTPError as e:
-        print(f"  创建 CI 失败（HTTP {e.code}）。")
+        print(f"  写入 CI 失败（HTTP {e.code}）。")
         if e.code in (401, 403, 422):
-            print("  PAT 需要 workflow 权限（classic PAT 勾选 repo + workflow）。")
+            print("  凭据需要 contents + workflow 写权限（classic PAT 勾选 repo + workflow）。")
             print("  或打开 README 里的「一键启用 CI」链接，在网页端点一次 Create。")
         return "failed"
     except Exception as e:
-        print(f"  创建 CI 失败：{e}")
+        print(f"  写入 CI 失败：{e}")
         return "failed"
 
 
@@ -302,15 +331,15 @@ def main():
     step(1, "提交本地改动")
     commit_local_changes()
 
-    step(2, "推送到 GitHub")
+    step(2, "检查 / 修复 GitHub Actions CI")
+    ci_state = enable_ci(api_token)
+
+    step(3, "推送到 GitHub")
     result = push(push_token)
     if result.returncode != 0:
         explain_push_failure(result)
         raise SystemExit(1)
     print("  推送成功。")
-
-    step(3, "检查 / 启用 GitHub Actions CI")
-    ci_state = enable_ci(api_token)
 
     step(4, "校验结果")
     verify()
