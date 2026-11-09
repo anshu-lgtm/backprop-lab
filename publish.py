@@ -111,18 +111,33 @@ def push(token):
         quoted = urllib.parse.quote(token, safe="")
         url = f"https://x-access-token:{quoted}@github.com/{OWNER}/{REPO}.git"
         # 禁用 credential.helper，防止 GCM 用缓存里的旧凭据覆盖 URL 中的 token
-        return git("-c", "credential.helper=", "push", url,
-                   f"HEAD:refs/heads/{BRANCH}", check=False)
+        cmd = ["-c", "credential.helper=", "push", url,
+               f"HEAD:refs/heads/{BRANCH}"]
+    else:
+        # 直接复用 GCM 登录态，成功就是真正的一次执行、零交互
+        cmd = ["push", "origin", f"HEAD:refs/heads/{BRANCH}"]
 
-    # 先复用已有的 GCM 登录态，成功就是真正的一次执行、零交互
-    first = git("push", "origin", f"HEAD:refs/heads/{BRANCH}", check=False)
+    first = git(*cmd, check=False)
     if first.returncode == 0:
         return first
     err = ((first.stderr or "") + (first.stdout or "")).lower()
-    if "authentication failed" in err or "401" in err or "invalid username" in err:
+
+    # 网页端创建 CI / 别人推送过 -> 远端有新提交，自动 rebase 后重试一次
+    if "fetch first" in err or "non-fast-forward" in err or "rejected" in err:
+        print("  远端有新提交，自动 fetch + rebase 后重试……")
+        git("fetch", "origin", check=False)
+        rebased = git("rebase", f"origin/{BRANCH}", check=False)
+        if rebased.returncode != 0:
+            print((rebased.stdout or "").strip()[-600:])
+            print((rebased.stderr or "").strip()[-600:])
+            print("  自动合并失败，请手动解决冲突后重跑（未强制覆盖任何提交）。")
+            return rebased
+        return git(*cmd, check=False)
+
+    if not token and ("authentication failed" in err or "401" in err or "invalid username" in err):
         clear_stale_credentials()
         print("  用新的浏览器登录重试一次……")
-        return git("push", "origin", f"HEAD:refs/heads/{BRANCH}", check=False)
+        return git(*cmd, check=False)
     return first
 
 
@@ -139,6 +154,9 @@ def explain_push_failure(proc):
     elif "gh001" in low or "workflow" in low or "refusing to allow" in low:
         print("\n  原因：PAT 缺少 workflow 权限，无法推送 workflow 文件。")
         print("  解决：换用勾选 workflow 的 PAT，或改用网页端创建 CI。")
+    elif "rejected" in low or "fetch first" in low or "conflict" in low:
+        print("\n  原因：远端与本地有冲突，自动合并未成功。")
+        print("  解决：手动处理冲突（git status）后重跑，脚本不会强制覆盖。")
 
 
 def gcm_token():
@@ -270,9 +288,11 @@ def main():
     print(f"CI  : {'PAT' if explicit_token else ('GitHub 登录态（自动）' if api_token else '无凭据，跳过')}")
     print("=" * 62)
 
+    git("fetch", "origin", "--quiet", check=False)
     branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     ahead = git("rev-list", "--count", f"origin/{BRANCH}..HEAD", check=False).stdout.strip()
-    print(f"当前分支: {branch}；待推送提交: {ahead or '0'} 个")
+    behind = git("rev-list", "--count", f"HEAD..origin/{BRANCH}", check=False).stdout.strip()
+    print(f"当前分支: {branch}；待推送 {ahead or '0'} 个提交，远端领先 {behind or '0'} 个")
 
     if dry:
         print("\n[--check] 仅做检查，未做任何写入或网络操作。")
